@@ -1,0 +1,76 @@
+---
+
+- name: Ensure motioneye directories exist.
+  file:
+    path: "{{ item }}"
+    state: directory
+    recurse: yes
+  with_items:
+    - /etc/motioneye
+    - /var/lib/motioneye
+
+- name: Install dependencies
+  apt:
+    update_cache: yes
+    cache_valid_time: 7200
+    state: latest
+    name: "{{ packages }}"
+  vars:
+    packages:
+    - ffmpeg
+    - v4l-utils
+    - gdebi-core
+    - libmysqlclient20
+    - libpq5
+    - mysql-common
+
+- uri:
+    url: https://api.github.com/repos/Motion-Project/motion/releases/latest
+    return_content: true
+  register: json_response
+
+- set_fact:
+    motion_latest: "{{ json_response.json.tag_name }}"
+
+- name: Install motion.
+  apt:
+    deb: https://github.com/Motion-Project/motion/releases/download/{{ motion_latest }}/{{ ansible_distribution_release }}_motion_{{ motion_latest | replace("release-","") }}-1_amd64.deb
+
+- name: Install dependencies.
+  apt:
+    name: "{{ packages }}"
+  vars:
+    packages:
+    - python-pip
+    - python-dev
+    - curl
+    - libssl-dev
+    - libcurl4-openssl-dev
+    - libjpeg-dev
+
+- name: Install motioneye gui.
+  pip:
+    name: motioneye
+    state: latest
+
+- name: Ensure the dist motioneye systemd unit is in place.
+  command: cp /usr/local/share/motioneye/extra/motioneye.systemd-unit-local /etc/systemd/system/motioneye.service
+
+- name: Set /etc/motion/motioneye.conf
+  template:
+    src: "motioneye.conf.j2"
+    dest: "/etc/motioneye/motioneye.conf"
+
+- name: Restart montion
+  systemd:
+    name: motion
+    state: restarted
+    enabled: yes
+    daemon_reload: yes
+
+- name: Restart montioneye
+  systemd:
+    name: motioneye
+    state: restarted
+    enabled: yes
+    daemon_reload: yes
